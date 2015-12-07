@@ -28,6 +28,7 @@ import (
 	blog "github.com/letsencrypt/boulder/log"
 	"github.com/letsencrypt/boulder/policy"
 	"github.com/letsencrypt/boulder/sa"
+	"github.com/letsencrypt/boulder/va"
 )
 
 const (
@@ -69,6 +70,7 @@ type reportEntry struct {
 
 type certChecker struct {
 	pa           core.PolicyAuthority
+	va           core.ValidationAuthority // Uses CAA methods directly
 	dbMap        *gorp.DbMap
 	certs        chan core.Certificate
 	clock        clock.Clock
@@ -76,11 +78,13 @@ type certChecker struct {
 	issuedReport report
 }
 
-func newChecker(saDbMap *gorp.DbMap, paDbMap *gorp.DbMap, clk clock.Clock, enforceWhitelist bool, challengeTypes map[string]bool) certChecker {
+func newChecker(saDbMap *gorp.DbMap, paDbMap *gorp.DbMap, va core.ValidationAuthority, clk clock.Clock, enforceWhitelist bool, challengeTypes map[string]bool) certChecker {
 	pa, err := policy.NewPolicyAuthorityImpl(paDbMap, enforceWhitelist, challengeTypes)
 	cmd.FailOnError(err, "Failed to create PA")
+
 	c := certChecker{
 		pa:    pa,
+		va:    va,
 		dbMap: saDbMap,
 		certs: make(chan core.Certificate, batchSize),
 		rMu:   new(sync.Mutex),
@@ -197,6 +201,15 @@ func (c *certChecker) checkCert(cert core.Certificate) (problems []string) {
 			if err = c.pa.WillingToIssue(id, cert.RegistrationID); err != nil {
 				problems = append(problems, fmt.Sprintf("Policy Authority isn't willing to issue for %s: %s", name, err))
 			}
+
+			// Check CAA
+			present, valid, err := c.va.CheckCAARecords(id)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("Error checking CAA records for %s: %s", name, err))
+			} else if present && !valid {
+				problems = append(problems, fmt.Sprintf("CAA prohibits issuance for %s", name))
+			}
+
 		}
 		// Check the cert has the correct key usage extensions
 		if !reflect.DeepEqual(parsedCert.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}) {
@@ -249,7 +262,13 @@ func main() {
 		paDbMap, err := sa.NewDbMap(paDbURL)
 		cmd.FailOnError(err, "Could not connect to policy database")
 
-		checker := newChecker(saDbMap, paDbMap, clock.Default(), c.PA.EnforcePolicyWhitelist, c.PA.Challenges)
+		dnsTimeout, err := time.ParseDuration(c.Common.DNSTimeout)
+		cmd.FailOnError(err, "Couldn't parse DNS timeout")
+
+		va := va.NewValidationAuthorityImpl(&va.PortConfig{}, nil, stats, nil)
+		va.DNSResolver = core.NewDNSResolverImpl(dnsTimeout, []string{c.Common.DNSResolver})
+
+		checker := newChecker(saDbMap, paDbMap, va, clock.Default(), c.PA.EnforcePolicyWhitelist, c.PA.Challenges)
 		auditlogger.Info("# Getting certificates issued in the last 90 days")
 
 		// Since we grab certificates in batches we don't want this to block, when it
