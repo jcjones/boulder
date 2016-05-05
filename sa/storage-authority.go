@@ -230,11 +230,14 @@ func (ssa *SQLStorageAuthority) GetValidAuthorizations(ctx context.Context, regi
 
 	var auths []*core.Authorization
 	_, err = ssa.dbMap.Select(&auths, `
-		SELECT * FROM authz
-		WHERE registrationID = ?
-		AND expires > ?
-		AND identifier IN (`+strings.Join(qmarks, ",")+`)
-		AND status = 'valid'
+		SELECT p1.* FROM authz AS p1 INNER JOIN (
+			SELECT identifier, max(expires) expires FROM authz
+			WHERE registrationID = ?
+			AND expires > ?
+			AND identifier IN (`+strings.Join(qmarks, ",")+`)
+			AND status = 'valid'
+			GROUP BY identifier
+		) AS p2 ON p1.identifier = p2.identifier WHERE p1.expires = p2.expires;
 		`, append([]interface{}{registrationID, now}, params...)...)
 	if err != nil {
 		return nil, err
