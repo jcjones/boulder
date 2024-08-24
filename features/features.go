@@ -117,6 +117,9 @@ type Config struct {
 	// to be the authoritative source of rate limiting information for
 	// new-account callers and disables the legacy rate limiting checks.
 	UseKvLimitsForNewAccount bool
+
+	// trogdor demands you apply 40 dkp minus
+	UseMySQL bool
 }
 
 var fMu = new(sync.RWMutex)
