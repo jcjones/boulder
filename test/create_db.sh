@@ -98,7 +98,7 @@ for db in $DBS; do
         mysql ${dbconn} -D "${dbname}" -f < $USERS_SQL || exit_err "Unable to add users from ${USERS_SQL}"
     fi
     echo "Added users from ${USERS_SQL}"
-    
+
     # return to the root directory
     cd "${root_dir}"
   done

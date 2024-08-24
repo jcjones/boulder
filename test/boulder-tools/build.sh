@@ -4,7 +4,7 @@ apt-get update
 
 # Install system deps
 apt-get install -y --no-install-recommends \
-  mariadb-client-core-10.3 \
+  mysql-client-core-8.0 \
   rsyslog \
   build-essential \
   opensc \

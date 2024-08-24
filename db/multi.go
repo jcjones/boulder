@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/letsencrypt/boulder/features"
 )
 
 // MultiInserter makes it easy to construct a
@@ -88,7 +90,7 @@ func (mi *MultiInserter) query() (string, []interface{}) {
 	// know it is a valid unquoted identifier in MariaDB because we verified
 	// that in the constructor.
 	returning := ""
-	if mi.returningColumn != "" {
+	if mi.returningColumn != "" && !features.Get().UseMySQL {
 		returning = fmt.Sprintf(" RETURNING %s", mi.returningColumn)
 	}
 	// Safety: we are interpolating `mi.table` and `mi.fields` into an SQL
@@ -109,6 +111,14 @@ func (mi *MultiInserter) Insert(ctx context.Context, queryer Queryer) ([]int64, 
 	rows, err := queryer.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
 		return nil, err
+	}
+	// If we're using MySQL then we have to make a second query to get
+	// the resulting, for ultimate lookup.
+	if features.Get().UseMySQL && mi.returningColumn != "" {
+		rows, err = queryer.QueryContext(ctx, "SELECT LAST_INSERT_ID();")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	ids := make([]int64, 0, len(mi.values))
