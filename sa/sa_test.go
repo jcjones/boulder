@@ -1072,14 +1072,22 @@ func TestFQDNSetsExists(t *testing.T) {
 }
 
 type queryRecorder struct {
-	query string
-	args  []interface{}
+	query       string
+	args        []interface{}
+	selectQuery string
+	selectArgs  []interface{}
 }
 
 func (e *queryRecorder) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
 	e.query = query
 	e.args = args
 	return nil, nil
+}
+
+func (e *queryRecorder) SelectOne(ctx context.Context, out interface{}, query string, args ...interface{}) error {
+	e.selectQuery = query
+	e.selectArgs = args
+	return nil
 }
 
 func TestAddIssuedNames(t *testing.T) {
