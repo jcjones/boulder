@@ -92,7 +92,7 @@ services:
       - --store=tikv
       - --path=pd0:2379,pd1:2379,pd2:2379
       - --config=/tidb.toml
-      - --advertise-address=tidb
+      - --advertise-address=bmysql
       - -P
       - "3306"
     depends_on:

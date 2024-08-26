@@ -13,7 +13,7 @@ max-open-files = 1024
 max-open-files = 1024
 
 [security]
-# set the path for certificates. Empty string means disabling secure connectoins.
+# set the path for certificates. Empty string means disabling secure connections.
 # ca-path = ""
 # cert-path = ""
 # key-path = ""
