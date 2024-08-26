@@ -1,0 +1,19 @@
+[log]
+level = "error"
+
+[storage]
+# Added by ISRG
+api-version = 2
+enable-ttl = true
+
+[rocksdb]
+max-open-files = 1024
+
+[raftdb]
+max-open-files = 1024
+
+[security]
+# set the path for certificates. Empty string means disabling secure connectoins.
+# ca-path = ""
+# cert-path = ""
+# key-path = ""

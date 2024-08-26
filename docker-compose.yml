@@ -76,21 +76,33 @@ services:
       - setup
 
   bmysql:
-    image: mysql:8.4
+    image: pingcap/tidb:latest
+    ports:
+      - "3306:3306"
+      - "10080:10080"
     networks:
       bouldernet:
         aliases:
           - boulder-mysql
-    environment:
-      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
-    # Send slow queries to a table so we can check for them in the
-    # integration tests. For now we ignore queries not using indexes,
-    # because that seems to trigger based on the optimizer's choice to not
-    # use an index for certain queries, particularly when tables are still
-    # small.
-    command: mysqld --bind-address=0.0.0.0 --slow-query-log --log-output=TABLE --log-queries-not-using-indexes=ON
-    logging:
-      driver: none
+      tidbnet:
+        ipv4_address: 10.44.44.44
+    volumes:
+      - ./test/tidb/config/tidb.toml:/tidb.toml:ro
+      # - ./test/tidb/logs:/logs
+    command:
+      - --store=tikv
+      - --path=pd0:2379,pd1:2379,pd2:2379
+      - --config=/tidb.toml
+      - --log-file=/logs/tidb.log
+      - --advertise-address=tidb
+      - -P
+      - "3306"
+    depends_on:
+      - "tikv0"
+      - "tikv1"
+      - "tikv2"
+    restart: on-failure
+
   bproxysql:
     image: proxysql/proxysql:2.5.4
     # The --initial flag force resets the ProxySQL database on startup. By
@@ -167,6 +179,138 @@ services:
         ipv4_address: 10.77.77.9
     command: "gunicorn -w 8 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:80 pkilint.rest:app"
 
+  pd0:
+    image: pingcap/pd:latest
+    ports:
+      - "2379"
+    volumes:
+      - ./test/tidb/config/pd.toml:/pd.toml:ro
+    command:
+      - --name=pd0
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd0:2379
+      - --advertise-peer-urls=http://pd0:2380
+      - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
+      - --data-dir=/data/pd0
+      - --config=/pd.toml
+      - --log-file=/logs/pd0.log
+    restart: on-failure
+    networks:
+      tidbnet:
+        ipv4_address: 10.44.44.80
+  pd1:
+    image: pingcap/pd:latest
+    ports:
+      - "2379"
+    volumes:
+      - ./test/tidb/config/pd.toml:/pd.toml:ro
+    command:
+      - --name=pd1
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd1:2379
+      - --advertise-peer-urls=http://pd1:2380
+      - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
+      - --data-dir=/data/pd1
+      - --config=/pd.toml
+      - --log-file=/logs/pd1.log
+    restart: on-failure
+    networks:
+      tidbnet:
+        ipv4_address: 10.44.44.81
+  pd2:
+    image: pingcap/pd:latest
+    ports:
+      - "2379"
+    volumes:
+      - ./test/tidb/config/pd.toml:/pd.toml:ro
+    command:
+      - --name=pd2
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd2:2379
+      - --advertise-peer-urls=http://pd2:2380
+      - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
+      - --data-dir=/data/pd2
+      - --config=/pd.toml
+      - --log-file=/logs/pd2.log
+    networks:
+      tidbnet:
+        ipv4_address: 10.44.44.82
+    restart: on-failure
+  tikv0:
+    image: pingcap/tikv:latest
+    volumes:
+      - ./test/tidb/config/tikv.toml:/tikv.toml:ro
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv0:20160
+      - --data-dir=/data/tikv0
+      - --pd=pd0:2379,pd1:2379,pd2:2379
+      - --config=/tikv.toml
+      - --log-file=/logs/tikv0.log
+    depends_on:
+      - "pd0"
+      - "pd1"
+      - "pd2"
+    networks:
+      tidbnet:
+        ipv4_address: 10.44.44.90
+    restart: on-failure
+  tikv1:
+    image: pingcap/tikv:latest
+    volumes:
+      - ./test/tidb/config/tikv.toml:/tikv.toml:ro
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv1:20160
+      - --data-dir=/data/tikv1
+      - --pd=pd0:2379,pd1:2379,pd2:2379
+      - --config=/tikv.toml
+      - --log-file=/logs/tikv1.log
+    depends_on:
+      - "pd0"
+      - "pd1"
+      - "pd2"
+    networks:
+      tidbnet:
+        ipv4_address: 10.44.44.91
+    restart: on-failure
+  tikv2:
+    image: pingcap/tikv:latest
+    volumes:
+      - ./test/tidb/config/tikv.toml:/tikv.toml:ro
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv2:20160
+      - --data-dir=/data/tikv2
+      - --pd=pd0:2379,pd1:2379,pd2:2379
+      - --config=/tikv.toml
+      - --log-file=/logs/tikv2.log
+    depends_on:
+      - "pd0"
+      - "pd1"
+      - "pd2"
+    networks:
+      tidbnet:
+        ipv4_address: 10.44.44.92
+    restart: on-failure
+
+  tidb-vision:
+    image: pingcap/tidb-vision:latest
+    environment:
+      PD_ENDPOINT: pd0:2379
+    ports:
+      - "8010:8010"
+    depends_on:
+      - "bmysql"
+    networks:
+      tidbnet:
+        ipv4_address: 10.44.44.100
+    restart: on-failure
+
+
 networks:
   # This network is primarily used for boulder services. It is also used by
   # challtestsrv, which is used in the integration tests.
@@ -200,6 +344,13 @@ networks:
       driver: default
       config:
         - subnet: 10.33.33.0/24
+
+  tidbnet:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.44.44.0/24
 
   consulnet:
     driver: bridge
