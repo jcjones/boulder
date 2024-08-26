@@ -88,12 +88,10 @@ services:
         ipv4_address: 10.44.44.44
     volumes:
       - ./test/tidb/config/tidb.toml:/tidb.toml:ro
-      # - ./test/tidb/logs:/logs
     command:
       - --store=tikv
       - --path=pd0:2379,pd1:2379,pd2:2379
       - --config=/tidb.toml
-      - --log-file=/logs/tidb.log
       - --advertise-address=tidb
       - -P
       - "3306"
@@ -194,7 +192,6 @@ services:
       - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
       - --data-dir=/data/pd0
       - --config=/pd.toml
-      - --log-file=/logs/pd0.log
     restart: on-failure
     networks:
       tidbnet:
@@ -214,7 +211,6 @@ services:
       - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
       - --data-dir=/data/pd1
       - --config=/pd.toml
-      - --log-file=/logs/pd1.log
     restart: on-failure
     networks:
       tidbnet:
@@ -234,7 +230,6 @@ services:
       - --initial-cluster=pd0=http://pd0:2380,pd1=http://pd1:2380,pd2=http://pd2:2380
       - --data-dir=/data/pd2
       - --config=/pd.toml
-      - --log-file=/logs/pd2.log
     networks:
       tidbnet:
         ipv4_address: 10.44.44.82
@@ -249,7 +244,6 @@ services:
       - --data-dir=/data/tikv0
       - --pd=pd0:2379,pd1:2379,pd2:2379
       - --config=/tikv.toml
-      - --log-file=/logs/tikv0.log
     depends_on:
       - "pd0"
       - "pd1"
@@ -268,7 +262,6 @@ services:
       - --data-dir=/data/tikv1
       - --pd=pd0:2379,pd1:2379,pd2:2379
       - --config=/tikv.toml
-      - --log-file=/logs/tikv1.log
     depends_on:
       - "pd0"
       - "pd1"
@@ -287,7 +280,6 @@ services:
       - --data-dir=/data/tikv2
       - --pd=pd0:2379,pd1:2379,pd2:2379
       - --config=/tikv.toml
-      - --log-file=/logs/tikv2.log
     depends_on:
       - "pd0"
       - "pd1"
