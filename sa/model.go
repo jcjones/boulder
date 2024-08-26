@@ -1027,7 +1027,7 @@ func deleteOrderFQDNSet(
 	return nil
 }
 
-func addIssuedNames(ctx context.Context, queryer db.Queryer, cert *x509.Certificate, isRenewal bool) error {
+func addIssuedNames(ctx context.Context, tx db.OneQueryer, cert *x509.Certificate, isRenewal bool) error {
 	if len(cert.DNSNames) == 0 {
 		return berrors.InternalServerError("certificate has no DNSNames")
 	}
@@ -1047,7 +1047,7 @@ func addIssuedNames(ctx context.Context, queryer db.Queryer, cert *x509.Certific
 			return err
 		}
 	}
-	_, err = multiInserter.Insert(ctx, queryer)
+	_, err = multiInserter.Insert(ctx, tx)
 	return err
 }
 

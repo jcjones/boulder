@@ -159,10 +159,12 @@ func TestTimeouts(t *testing.T) {
 		t.Fatal("Expected error when running slow query, got none.")
 	}
 
-	// We expect to get:
-	// Error 1969: Query execution was interrupted (max_statement_time exceeded)
-	// https://mariadb.com/kb/en/mariadb/mariadb-error-codes/
-	if !strings.Contains(err.Error(), "Error 1969") {
+	// We expect to get either
+	// a) Error 1969: Query execution was interrupted (max_statement_time exceeded)
+	//   https://mariadb.com/kb/en/mariadb/mariadb-error-codes/
+	//    or
+	// b) Error 1907: Query execution was interrupted, query_timeout exceeded
+	if !(strings.Contains(err.Error(), "Error 1969") || strings.Contains(err.Error(), "Error 1907")) {
 		t.Fatalf("Got wrong type of error: %s", err)
 	}
 }
