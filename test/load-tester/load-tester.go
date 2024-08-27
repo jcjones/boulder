@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"fmt"
 
 	"github.com/jmhodges/clock"
@@ -23,6 +27,8 @@ type loadtester struct {
 
 	clk clock.Clock
 	log blog.Logger
+
+	certKey crypto.PrivateKey
 }
 
 // newLoadTester constructs a new Boulder Load Tester object on the heap and returns a pointer to
@@ -45,6 +51,11 @@ func newLoadTester(configFile string) (*loadtester, error) {
 	clk := cmd.Clock()
 	features.Set(c.LoadTester.Features)
 
+	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generating a privkey: %w", err)
+	}
+
 	tlsConfig, err := c.LoadTester.TLS.Load(scope)
 	if err != nil {
 		return nil, fmt.Errorf("loading TLS config: %w", err)
@@ -65,10 +76,11 @@ func newLoadTester(configFile string) (*loadtester, error) {
 	sac := sapb.NewStorageAuthorityClient(saConn)
 
 	return &loadtester{
-		rac:   rac,
-		sac:   sac,
-		saroc: saroc,
-		clk:   clk,
-		log:   logger,
+		rac:     rac,
+		sac:     sac,
+		saroc:   saroc,
+		clk:     clk,
+		log:     logger,
+		certKey: certKey,
 	}, nil
 }
