@@ -28,7 +28,7 @@ func (s *subcommandIssueCert) Flags(flag *flag.FlagSet) {
 }
 
 func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
-	err := lt.newOrder(ctx, s.regId, []string{"common.tld"})
+	err := lt.newOrder(ctx, s.regId, []string{"common.lencr.org"})
 	if err != nil {
 		return err
 	}
