@@ -68,6 +68,7 @@ func main() {
 
 	// This is the registry of all subcommands that the admin tool can run.
 	subcommands := map[string]subcommand{
+		"issue": &subcommandIssueCert{},
 	}
 
 	defaultUsage := flag.Usage
