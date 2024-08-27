@@ -65,10 +65,10 @@ func newLoadTester(configFile string) (*loadtester, error) {
 	sac := sapb.NewStorageAuthorityClient(saConn)
 
 	return &loadtester{
-		rac:    rac,
-		sac:    sac,
-		saroc:  saroc,
-		clk:    clk,
-		log:    logger,
+		rac:   rac,
+		sac:   sac,
+		saroc: saroc,
+		clk:   clk,
+		log:   logger,
 	}, nil
 }
