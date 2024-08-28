@@ -22,7 +22,8 @@ import (
 
 // subcommandIssueCert issues certs.
 type subcommandIssueCert struct {
-	count             uint
+	workers           uint
+	orders            uint
 	acctKey           string
 	inhibitAuthzReuse bool
 }
@@ -35,7 +36,8 @@ func (s *subcommandIssueCert) Desc() string {
 
 func (s *subcommandIssueCert) Flags(flag *flag.FlagSet) {
 	// General flags relevant to all key input methods.
-	flag.UintVar(&s.count, "count", 10, "Number of concurrent workers to use")
+	flag.UintVar(&s.workers, "workers", 10, "Number of concurrent workers to use")
+	flag.UintVar(&s.orders, "orders", 8124, "Total number of orders to make")
 	flag.StringVar(&s.acctKey, "acct", "", "Account privkey")
 	flag.BoolVar(&s.inhibitAuthzReuse, "limit-reuse", false, "Trick the RA to inhibit AuthZ reuse")
 }
@@ -64,24 +66,23 @@ func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
 		return err
 	}
 
-	workCount := 8192
 	workStart := time.Now()
 
 	wg := sync.WaitGroup{}
 	workChan := make(chan int64, 100)
-	for range s.count {
+	for range s.workers {
 		wg.Add(1)
 		go s.issueWorker(ctx, lt, &wg, workChan)
 	}
 
-	for range workCount {
+	for range s.orders {
 		workChan <- regId
 	}
 	close(workChan)
 	wg.Wait()
 
 	workDuration := time.Since(workStart)
-	lt.log.Infof("Runner completed %d NewOrders in %s (%f/sec)", workCount, workDuration, float64(workCount)/workDuration.Seconds())
+	lt.log.Infof("Runner completed %d NewOrders in %s (%f/sec)", s.orders, workDuration, float64(s.orders)/workDuration.Seconds())
 
 	return nil
 }
@@ -216,14 +217,14 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 			return nil
 		}
 
+		backoff := core.RetryBackoff(try, time.Millisecond*250, time.Second*5, 2)
+		lt.log.Debugf("[%d] Retrying, try=%d, backoff=%s", orderId, try, backoff)
+		time.Sleep(backoff)
+
 		order, err = lt.saroc.GetOrder(ctx, getOrderReq)
 		if err != nil {
 			return fmt.Errorf("[%d] unable to poll order update: %w", orderId, err)
 		}
-
-		backoff := core.RetryBackoff(try, time.Millisecond*250, time.Second*5, 2)
-		lt.log.Debugf("[%d] Retrying, try=%d, backoff=%s", orderId, try, backoff)
-		time.Sleep(backoff)
 	}
 
 	lt.log.Errf("[%d] Timed out trying to finalize order, orderTime=%s, order=%v", orderId, time.Since(startTime), order)
