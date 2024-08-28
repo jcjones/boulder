@@ -28,7 +28,7 @@ RUN /tmp/build-rust-deps.sh
 # When the version of Ubuntu (focal, jammy, etc) changes, ensure that the
 # version of libc6 is compatible with the rustdeps container above. See
 # https://github.com/letsencrypt/boulder/pull/7248#issuecomment-1896612920 for
-# more information. 
+# more information.
 #
 # Run this command in each container: dpkg -l libc6
 FROM buildpack-deps:focal-scm

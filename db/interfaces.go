@@ -72,6 +72,13 @@ type Queryer interface {
 	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
 }
 
+// OneQueryer combines Queryer and OneSelector, suitable for the migration of MultiInserter
+// from MariaDB to MySQL
+type OneQueryer interface {
+	Queryer
+	OneSelector
+}
+
 // Transaction extends an Executor and adds Rollback and Commit
 type Transaction interface {
 	Executor

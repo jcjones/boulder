@@ -81,6 +81,10 @@ func initSA(t *testing.T) (*SQLStorageAuthority, clock.FakeClock, func()) {
 	t.Helper()
 	features.Reset()
 
+	// Switch to MySQL mode for SA tests, the cleanup is
+	// below in the cleanUp function.
+	features.Set(features.Config{UseMySQL: true})
+
 	dbMap, err := DBMapForTest(vars.DBConnSA)
 	if err != nil {
 		t.Fatalf("Failed to create dbMap: %s", err)
@@ -104,7 +108,12 @@ func initSA(t *testing.T) (*SQLStorageAuthority, clock.FakeClock, func()) {
 		t.Fatalf("Failed to create SA: %s", err)
 	}
 
-	return sa, fc, test.ResetBoulderTestDatabase(t)
+	cleanUp := func() {
+		test.ResetBoulderTestDatabase(t)
+		features.Reset()
+	}
+
+	return sa, fc, cleanUp
 }
 
 // CreateWorkingTestRegistration inserts a new, correct Registration into the
@@ -1063,14 +1072,22 @@ func TestFQDNSetsExists(t *testing.T) {
 }
 
 type queryRecorder struct {
-	query string
-	args  []interface{}
+	query       string
+	args        []interface{}
+	selectQuery string
+	selectArgs  []interface{}
 }
 
 func (e *queryRecorder) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
 	e.query = query
 	e.args = args
 	return nil, nil
+}
+
+func (e *queryRecorder) SelectOne(ctx context.Context, out interface{}, query string, args ...interface{}) error {
+	e.selectQuery = query
+	e.selectArgs = args
+	return nil
 }
 
 func TestAddIssuedNames(t *testing.T) {

@@ -48,6 +48,7 @@ import (
 	"github.com/letsencrypt/boulder/ctpolicy"
 	"github.com/letsencrypt/boulder/ctpolicy/loglist"
 	berrors "github.com/letsencrypt/boulder/errors"
+	"github.com/letsencrypt/boulder/features"
 	"github.com/letsencrypt/boulder/goodkey"
 	bgrpc "github.com/letsencrypt/boulder/grpc"
 	"github.com/letsencrypt/boulder/identifier"
@@ -295,6 +296,10 @@ func initAuthorities(t *testing.T) (*DummyValidationAuthority, sapb.StorageAutho
 	// Set to some non-zero time.
 	fc.Set(time.Date(2020, 3, 4, 5, 0, 0, 0, time.UTC))
 
+	// Switch to MySQL mode for RA tests, the cleanup is
+	// below in the cleanup function.
+	features.Set(features.Config{UseMySQL: true})
+
 	dbMap, err := sa.DBMapForTest(vars.DBConnSA)
 	if err != nil {
 		t.Fatalf("Failed to create dbMap: %s", err)
@@ -326,6 +331,8 @@ func initAuthorities(t *testing.T) (*DummyValidationAuthority, sapb.StorageAutho
 	}
 	cleanUp := func() {
 		saDBCleanUp()
+		// Connected to the features.Set above.
+		features.Reset()
 	}
 
 	block, _ := pem.Decode(CSRPEM)
