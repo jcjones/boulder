@@ -95,6 +95,9 @@ func (lt *loadtester) newOrder(ctx context.Context, regID int64, dnsNames []stri
 		&x509.CertificateRequest{DNSNames: dnsNames},
 		lt.certKey,
 	)
+	if err != nil {
+		return fmt.Errorf("unable to make CSR: %w", err)
+	}
 
 	req := &rapb.NewOrderRequest{
 		RegistrationID: regID,
