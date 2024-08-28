@@ -1,13 +1,13 @@
-// Package main provides the "admin" tool, which can perform various
-// administrative actions (such as revoking certificates) against a Boulder
-// deployment.
+// Package main provides the "load-tester" tool, which emulates the Web Front
+// End to drive Boulder at speed, for load testing purposes.
 //
-// Run "admin -h" for a list of flags and subcommands.
+// Run "load-tester -h" for a list of flags and subcommands.
 //
-// Note that the admin tool runs in "dry-run" mode *by default*. All commands
-// which mutate the database (either directly or via gRPC requests) will refuse
-// to do so, and instead print log lines representing the work they would do,
-// unless the "-dry-run=false" flag is passed.
+// This tool will need privileges like the Admin tool.
+//
+// Note that this tool is not safe to use against a production environment,
+// as it uses its admin privileges to bypass slow operations, depending on
+// mode.
 package main
 
 import (
@@ -79,7 +79,7 @@ func main() {
 			fmt.Printf("  %s\n", name)
 			fmt.Printf("\t%s\n", command.Desc())
 		}
-		fmt.Print("\nYou can run \"admin <subcommand> -help\" to get usage for that subcommand.\n")
+		fmt.Print("\nYou can run \"load-tester <subcommand> -help\" to get usage for that subcommand.\n")
 	}
 
 	// Start by parsing just the global flags before we get to the subcommand, if

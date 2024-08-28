@@ -31,7 +31,7 @@ type subcommandIssueCert struct {
 var _ subcommand = (*subcommandIssueCert)(nil)
 
 func (s *subcommandIssueCert) Desc() string {
-	return "Issue certs for the provided regID"
+	return "Rapidly make and fulfill Orders for the provided Account, registering it if needed."
 }
 
 func (s *subcommandIssueCert) Flags(flag *flag.FlagSet) {
@@ -53,6 +53,10 @@ func (s *subcommandIssueCert) issueWorker(ctx context.Context, lt *loadtester, w
 }
 
 func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
+	if s.acctKey == "" {
+		return fmt.Errorf("The account key must be provided.")
+	}
+
 	_, key, err := privatekey.Load(s.acctKey)
 	if err != nil {
 		return err
