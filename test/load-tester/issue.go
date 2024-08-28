@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -20,8 +22,9 @@ import (
 
 // subcommandIssueCert issues certs.
 type subcommandIssueCert struct {
-	count   uint
-	acctKey string
+	count             uint
+	acctKey           string
+	inhibitAuthzReuse bool
 }
 
 var _ subcommand = (*subcommandIssueCert)(nil)
@@ -32,8 +35,19 @@ func (s *subcommandIssueCert) Desc() string {
 
 func (s *subcommandIssueCert) Flags(flag *flag.FlagSet) {
 	// General flags relevant to all key input methods.
-	flag.UintVar(&s.count, "count", 10, "Number of concurrent workers to use while blocking keys")
+	flag.UintVar(&s.count, "count", 10, "Number of concurrent workers to use")
 	flag.StringVar(&s.acctKey, "acct", "", "Account privkey")
+	flag.BoolVar(&s.inhibitAuthzReuse, "limit-reuse", false, "Trick the RA to inhibit AuthZ reuse")
+}
+
+func (s *subcommandIssueCert) issueWorker(ctx context.Context, lt *loadtester, wg *sync.WaitGroup, workChan <-chan int64) {
+	defer wg.Done()
+	for regId := range workChan {
+		err := s.newOrder(ctx, lt, regId)
+		if err != nil {
+			lt.log.Errf("NewOrder failed: %w", err)
+		}
+	}
 }
 
 func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
@@ -50,10 +64,25 @@ func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
 		return err
 	}
 
-	err = lt.newOrder(ctx, regId, []string{"common.lencr.org"})
-	if err != nil {
-		return err
+	workCount := 8192
+	workStart := time.Now()
+
+	wg := sync.WaitGroup{}
+	workChan := make(chan int64, 100)
+	for range s.count {
+		wg.Add(1)
+		go s.issueWorker(ctx, lt, &wg, workChan)
 	}
+
+	for range workCount {
+		workChan <- regId
+	}
+	close(workChan)
+	wg.Wait()
+
+	workDuration := time.Since(workStart)
+	lt.log.Infof("Runner completed %d NewOrders in %s (%f/sec)", workCount, workDuration, float64(workCount)/workDuration.Seconds())
+
 	return nil
 }
 
@@ -87,9 +116,23 @@ func (lt *loadtester) getOrMakeReg(ctx context.Context, jwk jose.JSONWebKey) (in
 	return reg.Id, nil
 }
 
-func (lt *loadtester) newOrder(ctx context.Context, regID int64, dnsNames []string) error {
+func randomHostname() string {
+	b := make([]byte, 1)
+	_, err := rand.Read(b)
+	if err != nil {
+		panic(err)
+	}
+
+	host := fmt.Sprintf("%s.lencr.org", hex.EncodeToString(b))
+	return host
+}
+
+func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regID int64) error {
 	var order *corepb.Order
 
+	startTime := time.Now()
+
+	dnsNames := []string{"common.lencr.org", randomHostname()}
 	csr, err := x509.CreateCertificateRequest(
 		rand.Reader,
 		&x509.CertificateRequest{DNSNames: dnsNames},
@@ -108,13 +151,29 @@ func (lt *loadtester) newOrder(ctx context.Context, regID int64, dnsNames []stri
 		return fmt.Errorf("unable to make order: %w", err)
 	}
 
-	lt.log.Infof("New Order by regID=%d, names=%v: %v", regID, dnsNames, order)
+	orderId := order.Id
+
+	lt.log.Debugf("[%d] New Order by regID=%d, names=%v: %v", order.Id, regID, dnsNames, order)
 
 	attemptedTime := time.Now()
-	expirationTime := attemptedTime.Add(time.Hour * 24)
+	expirationTime := attemptedTime.Add(time.Hour * 24 * 7)
+	if s.inhibitAuthzReuse {
+		// Setting these to 1 day expiration ensures RA won't perform a unlimited authz reuse, as
+		// 1 day is its cutoff.
+		expirationTime = attemptedTime.Add(time.Hour * 24)
+	}
 
 	for _, authzID := range order.V2Authorizations {
-		lt.log.Infof("Satisfying challenge %d", authzID)
+		lt.log.Debugf("[%d] Attempting to satisfy challenge for authzID=%d", orderId, authzID)
+
+		authz, err := lt.saroc.GetAuthorization2(ctx, &sapb.AuthorizationID2{Id: authzID})
+		if err != nil {
+			return fmt.Errorf("[%d] unable to find authz: %w", orderId, err)
+		}
+		if authz.Status == string(core.StatusValid) {
+			lt.log.Debugf("[%d] AuthzID was reused, already Valid authzID=%d", orderId, authzID)
+			continue
+		}
 
 		finalAuthzReq := &sapb.FinalizeAuthorizationRequest{
 			Id:          authzID,
@@ -123,16 +182,16 @@ func (lt *loadtester) newOrder(ctx context.Context, regID int64, dnsNames []stri
 			AttemptedAt: timestamppb.New(attemptedTime),
 			Attempted:   string(core.ChallengeTypeTLSALPN01),
 		}
-		_, err := lt.sac.FinalizeAuthorization2(ctx, finalAuthzReq)
+		_, err = lt.sac.FinalizeAuthorization2(ctx, finalAuthzReq)
 		if err != nil {
-			return err
+			return fmt.Errorf("[%d] unable to finalize authz: %w", orderId, err)
 		}
 	}
 
 	// We're done, really
 	order.Status = string(core.StatusReady)
 
-	lt.log.Infof("Finalizing order %d", order.Id)
+	lt.log.Debugf("[%d] Finalizing order", order.Id)
 	finalOrderReq := &rapb.FinalizeOrderRequest{
 		Order: order,
 		Csr:   csr,
@@ -140,29 +199,33 @@ func (lt *loadtester) newOrder(ctx context.Context, regID int64, dnsNames []stri
 
 	order, err = lt.rac.FinalizeOrder(ctx, finalOrderReq)
 	if err != nil {
-		return fmt.Errorf("unable to finalize order: %w", err)
+		return fmt.Errorf("[%d] unable to finalize order: %w", orderId, err)
 	}
 
 	getOrderReq := &sapb.OrderRequest{
-		Id: order.Id,
+		Id: orderId,
 	}
 
-	for {
+	for try := range 10 {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		if order.Status != string(core.StatusProcessing) {
-			lt.log.Infof("Final Order: %v", order)
+			lt.log.Infof("[%d] Final Order; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
 			return nil
 		}
 
 		order, err = lt.saroc.GetOrder(ctx, getOrderReq)
 		if err != nil {
-			return fmt.Errorf("unable to poll order update: %w", err)
+			return fmt.Errorf("[%d] unable to poll order update: %w", orderId, err)
 		}
 
-		time.Sleep(time.Second)
+		backoff := core.RetryBackoff(try, time.Millisecond*250, time.Second*5, 2)
+		lt.log.Debugf("[%d] Retrying, try=%d, backoff=%s", orderId, try, backoff)
+		time.Sleep(backoff)
 	}
 
+	lt.log.Errf("[%d] Timed out trying to finalize order, orderTime=%s, order=%v", orderId, time.Since(startTime), order)
+	return nil
 }
