@@ -617,9 +617,11 @@ func (ssa *SQLStorageAuthority) NewOrderAndAuthzs(ctx context.Context, req *sapb
 	}
 
 	// Increment the order creation count
-	err = addNewOrdersRateLimit(ctx, ssa.dbMap, req.NewOrder.RegistrationID, ssa.clk.Now().Truncate(time.Minute))
-	if err != nil {
-		return nil, err
+	if !features.Get().UseMySQL {
+		err = addNewOrdersRateLimit(ctx, ssa.dbMap, req.NewOrder.RegistrationID, ssa.clk.Now().Truncate(time.Minute))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return order, nil
