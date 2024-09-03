@@ -231,8 +231,8 @@ func adjustMySQLConfig(conf *mysql.Config) error {
 		readTimeout := conf.ReadTimeout.Seconds()
 		if !features.Get().UseMySQL {
 			setDefault("max_statement_time", fmt.Sprintf("%.6f", readTimeout*0.95))
+			setDefault("long_query_time", fmt.Sprintf("%.6f", readTimeout*0.80))
 		}
-		setDefault("long_query_time", fmt.Sprintf("%.6f", readTimeout*0.80))
 	}
 
 	omitZero("max_statement_time")
