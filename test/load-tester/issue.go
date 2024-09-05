@@ -204,11 +204,6 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 		Csr:   csr,
 	}
 
-	order, err = lt.rac.FinalizeOrder(ctx, finalOrderReq)
-	if err != nil {
-		return fmt.Errorf("[%d] unable to finalize order: %w", orderId, err)
-	}
-
 	getOrderReq := &sapb.OrderRequest{
 		Id: orderId,
 	}
@@ -218,8 +213,14 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 			return ctx.Err()
 		}
 
+		order, err = lt.rac.FinalizeOrder(ctx, finalOrderReq)
+		if err != nil {
+			lt.log.Debugf("[%d] unable to finalize order: %w", orderId, err)
+			continue
+		}
+
 		if order.Status != string(core.StatusProcessing) {
-			lt.log.Infof("[%d] Final Order; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
+			lt.log.Debugf("[%d] Final Order; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
 			return nil
 		}
 
@@ -233,6 +234,5 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 		}
 	}
 
-	lt.log.Errf("[%d] Timed out trying to finalize order, orderTime=%s, order=%v", orderId, time.Since(startTime), order)
-	return nil
+	return fmt.Errorf("[%d] Timed out trying to finalize order, orderTime=%s, order=%v", orderId, time.Since(startTime), order)
 }
