@@ -20,12 +20,23 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+type IssueResult string
+
+const (
+	ResultSuccess = IssueResult("success") // The certificate was issued
+	ResultReused  = IssueResult("reused")  // The order was reused
+	ResultInvalid = IssueResult("invalid") // The order was invalid
+	ResultTimeout = IssueResult("timeout") // The order ended in a timeout
+	ResultError   = IssueResult("error")   // The order ended in an error
+)
+
 // subcommandIssueCert issues certs.
 type subcommandIssueCert struct {
 	workers           uint
 	orders            uint
 	hostnameWidth     uint
 	acctKey           string
+	domain            string
 	inhibitAuthzReuse bool
 }
 
@@ -41,17 +52,8 @@ func (s *subcommandIssueCert) Flags(flag *flag.FlagSet) {
 	flag.UintVar(&s.hostnameWidth, "hostnameWidth", 1, "Bytes of random data in hostnames")
 	flag.UintVar(&s.orders, "orders", 8124, "Total number of orders to make")
 	flag.StringVar(&s.acctKey, "acct", "", "Account privkey")
+	flag.StringVar(&s.domain, "domain", "lencr.org", "Domain name to use")
 	flag.BoolVar(&s.inhibitAuthzReuse, "limit-reuse", false, "Trick the RA to inhibit AuthZ reuse")
-}
-
-func (s *subcommandIssueCert) issueWorker(ctx context.Context, lt *loadtester, wg *sync.WaitGroup, workChan <-chan int64) {
-	defer wg.Done()
-	for regId := range workChan {
-		err := s.newOrder(ctx, lt, regId)
-		if err != nil {
-			lt.log.Errf("NewOrder failed: %w", err)
-		}
-	}
 }
 
 func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
@@ -76,9 +78,10 @@ func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
 
 	wg := sync.WaitGroup{}
 	workChan := make(chan int64, 100)
+	resultChan := make(chan IssueResult, s.orders)
 	for range s.workers {
 		wg.Add(1)
-		go s.issueWorker(ctx, lt, &wg, workChan)
+		go s.issueWorker(ctx, lt, &wg, workChan, resultChan)
 	}
 
 	for range s.orders {
@@ -86,13 +89,48 @@ func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
 	}
 	close(workChan)
 	wg.Wait()
-
 	workDuration := time.Since(workStart)
-	lt.log.Infof("Runner completed %d NewOrders in %s (%f/sec)", s.orders, workDuration, float64(s.orders)/workDuration.Seconds())
+
+	close(resultChan)
+	var resultSuccess int
+	var resultReused int
+	var resultInvalid int
+	var resultTimeout int
+	var resultError int
+
+	for result := range resultChan {
+		if result == ResultSuccess {
+			resultSuccess += 1
+		}
+		if result == ResultReused {
+			resultReused += 1
+		}
+		if result == ResultInvalid {
+			resultInvalid += 1
+		}
+		if result == ResultTimeout {
+			resultTimeout += 1
+		}
+		if result == ResultError {
+			resultError += 1
+		}
+	}
+
+	lt.log.Infof("Runner completed %d NewOrders in %s (%f/sec), success=%d, reused=%d, invalid=%d, timeout=%d, error=%d", s.orders, workDuration, float64(s.orders)/workDuration.Seconds(), resultSuccess, resultReused, resultInvalid, resultTimeout, resultError)
 
 	return nil
 }
 
+func (s *subcommandIssueCert) issueWorker(ctx context.Context, lt *loadtester, wg *sync.WaitGroup, workChan <-chan int64, resultChan chan<- IssueResult) {
+	defer wg.Done()
+	for regId := range workChan {
+		result, err := s.newOrder(ctx, lt, regId)
+		if err != nil {
+			lt.log.Errf("NewOrder failed: %w", err)
+		}
+		resultChan <- result
+	}
+}
 func (lt *loadtester) makeReg(ctx context.Context, keyBytes []byte) (int64, error) {
 	reg := &corepb.Registration{
 		Key:             keyBytes,
@@ -130,23 +168,23 @@ func (s *subcommandIssueCert) randomHostname() string {
 		panic(err)
 	}
 
-	host := fmt.Sprintf("%s.lencr.org", hex.EncodeToString(b))
+	host := fmt.Sprintf("%s.%s", hex.EncodeToString(b), s.domain)
 	return host
 }
 
-func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regID int64) error {
+func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regID int64) (IssueResult, error) {
 	var order *corepb.Order
 
 	startTime := time.Now()
 
-	dnsNames := []string{"common.lencr.org", s.randomHostname()}
+	dnsNames := []string{s.randomHostname(), s.randomHostname()}
 	csr, err := x509.CreateCertificateRequest(
 		rand.Reader,
 		&x509.CertificateRequest{DNSNames: dnsNames},
 		lt.certKey,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to make CSR: %w", err)
+		return ResultError, fmt.Errorf("unable to make CSR: %w", err)
 	}
 
 	req := &rapb.NewOrderRequest{
@@ -155,7 +193,7 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 	}
 	order, err = lt.rac.NewOrder(ctx, req)
 	if err != nil {
-		return fmt.Errorf("unable to make order: %w", err)
+		return ResultError, fmt.Errorf("unable to make order: %w", err)
 	}
 
 	orderId := order.Id
@@ -175,7 +213,7 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 
 		authz, err := lt.saroc.GetAuthorization2(ctx, &sapb.AuthorizationID2{Id: authzID})
 		if err != nil {
-			return fmt.Errorf("[%d] unable to find authz: %w", orderId, err)
+			return ResultError, fmt.Errorf("[%d] unable to find authz: %w", orderId, err)
 		}
 		if authz.Status == string(core.StatusValid) {
 			lt.log.Debugf("[%d] AuthzID was reused, already Valid authzID=%d", orderId, authzID)
@@ -191,7 +229,7 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 		}
 		_, err = lt.sac.FinalizeAuthorization2(ctx, finalAuthzReq)
 		if err != nil {
-			return fmt.Errorf("[%d] unable to finalize authz: %w", orderId, err)
+			return ResultError, fmt.Errorf("[%d] unable to finalize authz: %w", orderId, err)
 		}
 	}
 
@@ -208,20 +246,38 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 		Id: orderId,
 	}
 
+	order, err = lt.rac.FinalizeOrder(ctx, finalOrderReq)
+	if err != nil {
+		// Possibly we had order reuse.
+		order, err = lt.saroc.GetOrder(ctx, getOrderReq)
+		if err != nil {
+			return ResultError, fmt.Errorf("[%d] unable to poll order update: %w", orderId, err)
+		}
+	}
+
 	for try := range 10 {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return ResultTimeout, ctx.Err()
 		}
 
-		order, err = lt.rac.FinalizeOrder(ctx, finalOrderReq)
-		if err != nil {
-			lt.log.Debugf("[%d] unable to finalize order: %w", orderId, err)
-			continue
-		}
-
-		if order.Status != string(core.StatusProcessing) {
+		if order.Status == string(core.StatusReady) {
 			lt.log.Debugf("[%d] Final Order; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
-			return nil
+			return ResultSuccess, nil
+		}
+		if order.Status == string(core.StatusValid) {
+			lt.log.Debugf("[%d] Reused Order; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
+			return ResultReused, nil
+		}
+
+		// We failed for some reason, bail out
+		if order.Status == string(core.StatusInvalid) {
+			lt.log.Errf("[%d] Invalid Order; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
+			return ResultInvalid, nil
+		}
+
+		// We're not done yet
+		if order.Status != string(core.StatusProcessing) {
+			lt.log.Errf("[%d] Unexpected status; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
 		}
 
 		backoff := core.RetryBackoff(try, time.Millisecond*250, time.Second*5, 2)
@@ -230,9 +286,9 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 
 		order, err = lt.saroc.GetOrder(ctx, getOrderReq)
 		if err != nil {
-			return fmt.Errorf("[%d] unable to poll order update: %w", orderId, err)
+			return ResultError, fmt.Errorf("[%d] unable to poll order update: %w", orderId, err)
 		}
 	}
 
-	return fmt.Errorf("[%d] Timed out trying to finalize order, orderTime=%s, order=%v", orderId, time.Since(startTime), order)
+	return ResultTimeout, fmt.Errorf("[%d] Timed out trying to finalize order, orderTime=%s, order=%v", orderId, time.Since(startTime), order)
 }
