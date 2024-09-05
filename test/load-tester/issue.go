@@ -24,6 +24,7 @@ import (
 type subcommandIssueCert struct {
 	workers           uint
 	orders            uint
+	hostnameWidth     uint
 	acctKey           string
 	inhibitAuthzReuse bool
 }
@@ -37,6 +38,7 @@ func (s *subcommandIssueCert) Desc() string {
 func (s *subcommandIssueCert) Flags(flag *flag.FlagSet) {
 	// General flags relevant to all key input methods.
 	flag.UintVar(&s.workers, "workers", 10, "Number of concurrent workers to use")
+	flag.UintVar(&s.hostnameWidth, "hostnameWidth", 1, "Bytes of random data in hostnames")
 	flag.UintVar(&s.orders, "orders", 8124, "Total number of orders to make")
 	flag.StringVar(&s.acctKey, "acct", "", "Account privkey")
 	flag.BoolVar(&s.inhibitAuthzReuse, "limit-reuse", false, "Trick the RA to inhibit AuthZ reuse")
@@ -121,8 +123,8 @@ func (lt *loadtester) getOrMakeReg(ctx context.Context, jwk jose.JSONWebKey) (in
 	return reg.Id, nil
 }
 
-func randomHostname() string {
-	b := make([]byte, 1)
+func (s *subcommandIssueCert) randomHostname() string {
+	b := make([]byte, s.hostnameWidth)
 	_, err := rand.Read(b)
 	if err != nil {
 		panic(err)
@@ -137,7 +139,7 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 
 	startTime := time.Now()
 
-	dnsNames := []string{"common.lencr.org", randomHostname()}
+	dnsNames := []string{"common.lencr.org", s.randomHostname()}
 	csr, err := x509.CreateCertificateRequest(
 		rand.Reader,
 		&x509.CertificateRequest{DNSNames: dnsNames},
