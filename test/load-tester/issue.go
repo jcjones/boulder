@@ -116,11 +116,11 @@ func (s *subcommandIssueCert) Run(ctx context.Context, lt *loadtester) error {
 		}
 	}
 
-	lt.log.Infof("Runner completed %d NewOrders in %s (%s s) (%f/sec), success=%d, reused=%d, invalid=%d, timeout=%d, error=%d", s.orders, workDuration, workDuration.Seconds(), float64(s.orders)/workDuration.Seconds(), resultSuccess, resultReused, resultInvalid, resultTimeout, resultError)
+	lt.log.Infof("Runner completed %d NewOrders in %s (%f/sec), success=%d, reused=%d, invalid=%d, timeout=%d, error=%d", s.orders, workDuration, float64(s.orders)/workDuration.Seconds(), resultSuccess, resultReused, resultInvalid, resultTimeout, resultError)
 
 	problems := resultError + resultTimeout + resultInvalid
 	lt.log.Info("threads,count,reuse,duration,problems")
-	lt.log.Infof("%d,%d,%s,%d s, %d", s.workers, s.orders, s.inhibitAuthzReuse, workDuration.Seconds(), problems)
+	lt.log.Infof("%d,%d,%t,%f,%d", s.workers, s.orders, s.inhibitAuthzReuse, workDuration.Seconds(), problems)
 
 	return nil
 }
