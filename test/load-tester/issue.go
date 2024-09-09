@@ -246,8 +246,8 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 		Id: orderId,
 	}
 
-	order, err = lt.rac.FinalizeOrder(ctx, finalOrderReq)
-	if err != nil {
+	order, finalizeErr := lt.rac.FinalizeOrder(ctx, finalOrderReq)
+	if finalizeErr != nil {
 		// Possibly we had order reuse.
 		order, err = lt.saroc.GetOrder(ctx, getOrderReq)
 		if err != nil {
@@ -260,12 +260,13 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 			return ResultTimeout, ctx.Err()
 		}
 
-		if order.Status == string(core.StatusReady) {
+		if order.Status == string(core.StatusValid) {
 			lt.log.Debugf("[%d] Final Order; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
 			return ResultSuccess, nil
 		}
-		if order.Status == string(core.StatusValid) {
-			lt.log.Debugf("[%d] Reused Order; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
+
+		if order.Status == string(core.StatusReady) {
+			lt.log.Errf("[%d] Unprocessed order, did the finalize not work? finalizeErr=%v, orderTime=%s, order=%v", orderId, finalizeErr, time.Since(startTime), order)
 			return ResultReused, nil
 		}
 
