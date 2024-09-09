@@ -194,6 +194,10 @@ func (s *subcommandIssueCert) validateAuthz(ctx context.Context, lt *loadtester,
 			return nil
 		}
 
+		if try > 10 {
+			return fmt.Errorf("[%d] timed out trying to finalize authz", orderId)
+		}
+
 		finalAuthzReq := &sapb.FinalizeAuthorizationRequest{
 			Id:          authzId,
 			Status:      "valid",
@@ -203,7 +207,7 @@ func (s *subcommandIssueCert) validateAuthz(ctx context.Context, lt *loadtester,
 		}
 		_, err = lt.sac.FinalizeAuthorization2(ctx, finalAuthzReq)
 		if err != nil {
-			return fmt.Errorf("[%d] unable to finalize authz: %w", orderId, err)
+			lt.log.Debugf("[%d] Unable to finalize authz: %w", orderId, err)
 		}
 
 		// Go immediately on the first attempt
