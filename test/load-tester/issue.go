@@ -276,6 +276,7 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 		Id: orderId,
 	}
 
+restartFinalize:
 	order, finalizeErr := lt.rac.FinalizeOrder(ctx, finalOrderReq)
 	if finalizeErr != nil {
 		// Possibly we had order reuse.
@@ -296,8 +297,8 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 		}
 
 		if order.Status == string(core.StatusReady) {
-			lt.log.Errf("[%d] Unprocessed order, did the finalize not work? finalizeErr=%v, orderTime=%s, order=%v", orderId, finalizeErr, time.Since(startTime), order)
-			return ResultReused, nil
+			lt.log.Errf("[%d] Unprocessed order, did the finalize not work? Restarting. finalizeErr=%v, orderTime=%s, order=%v", orderId, finalizeErr, time.Since(startTime), order)
+			goto restartFinalize
 		}
 
 		// We failed for some reason, bail out
