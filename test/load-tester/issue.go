@@ -212,7 +212,7 @@ func (s *subcommandIssueCert) validateAuthz(ctx context.Context, lt *loadtester,
 
 		// Go immediately on the first attempt
 		if try > 0 {
-			backoff := core.RetryBackoff(try, time.Millisecond*250, time.Second*5, 2)
+			backoff := core.RetryBackoff(try, time.Millisecond*50, time.Second*2, 2)
 			lt.log.Debugf("[%d] Retrying, try=%d, backoff=%s", orderId, try, backoff)
 			time.Sleep(backoff)
 		}
@@ -311,7 +311,7 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 			lt.log.Errf("[%d] Unexpected status; orderTime=%s, order=%v", orderId, time.Since(startTime), order)
 		}
 
-		backoff := core.RetryBackoff(try, time.Millisecond*250, time.Second*5, 2)
+		backoff := core.RetryBackoff(try, time.Millisecond*50, time.Second*2, 2)
 		lt.log.Debugf("[%d] Retrying, try=%d, backoff=%s", orderId, try, backoff)
 		time.Sleep(backoff)
 
