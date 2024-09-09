@@ -176,6 +176,46 @@ func (s *subcommandIssueCert) randomHostname() string {
 	return host
 }
 
+func (s *subcommandIssueCert) validateAuthz(ctx context.Context, lt *loadtester, orderId int64, authzId int64, attemptedTime time.Time, expirationTime time.Time) error {
+	lt.log.Debugf("[%d] Attempting to satisfy challenge for authzId=%d", orderId, authzId)
+
+	try := 0
+
+	for {
+		authz, err := lt.saroc.GetAuthorization2(ctx, &sapb.AuthorizationID2{Id: authzId})
+		if err != nil {
+			return fmt.Errorf("[%d] unable to find authz: %w", orderId, err)
+		}
+
+		if authz.Status == string(core.StatusValid) {
+			if try == 0 {
+				lt.log.Debugf("[%d] AuthzID was reused, already Valid authzId=%d", orderId, authzId)
+			}
+			return nil
+		}
+
+		finalAuthzReq := &sapb.FinalizeAuthorizationRequest{
+			Id:          authzId,
+			Status:      "valid",
+			Expires:     timestamppb.New(expirationTime),
+			AttemptedAt: timestamppb.New(attemptedTime),
+			Attempted:   string(core.ChallengeTypeTLSALPN01),
+		}
+		_, err = lt.sac.FinalizeAuthorization2(ctx, finalAuthzReq)
+		if err != nil {
+			return fmt.Errorf("[%d] unable to finalize authz: %w", orderId, err)
+		}
+
+		// Go immediately on the first attempt
+		if try > 0 {
+			backoff := core.RetryBackoff(try, time.Millisecond*250, time.Second*5, 2)
+			lt.log.Debugf("[%d] Retrying, try=%d, backoff=%s", orderId, try, backoff)
+			time.Sleep(backoff)
+		}
+		try += 1
+	}
+}
+
 func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regID int64) (IssueResult, error) {
 	var order *corepb.Order
 
@@ -213,27 +253,9 @@ func (s *subcommandIssueCert) newOrder(ctx context.Context, lt *loadtester, regI
 	}
 
 	for _, authzID := range order.V2Authorizations {
-		lt.log.Debugf("[%d] Attempting to satisfy challenge for authzID=%d", orderId, authzID)
-
-		authz, err := lt.saroc.GetAuthorization2(ctx, &sapb.AuthorizationID2{Id: authzID})
+		err := s.validateAuthz(ctx, lt, orderId, authzID, attemptedTime, expirationTime)
 		if err != nil {
-			return ResultError, fmt.Errorf("[%d] unable to find authz: %w", orderId, err)
-		}
-		if authz.Status == string(core.StatusValid) {
-			lt.log.Debugf("[%d] AuthzID was reused, already Valid authzID=%d", orderId, authzID)
-			continue
-		}
-
-		finalAuthzReq := &sapb.FinalizeAuthorizationRequest{
-			Id:          authzID,
-			Status:      "valid",
-			Expires:     timestamppb.New(expirationTime),
-			AttemptedAt: timestamppb.New(attemptedTime),
-			Attempted:   string(core.ChallengeTypeTLSALPN01),
-		}
-		_, err = lt.sac.FinalizeAuthorization2(ctx, finalAuthzReq)
-		if err != nil {
-			return ResultError, fmt.Errorf("[%d] unable to finalize authz: %w", orderId, err)
+			return ResultError, err
 		}
 	}
 
