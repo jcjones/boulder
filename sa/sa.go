@@ -705,6 +705,44 @@ func (ssa *SQLStorageAuthority) FinalizeOrder(ctx context.Context, req *sapb.Fin
 	if req.Id == 0 || req.CertificateSerial == "" {
 		return nil, errIncompleteRequest
 	}
+
+	// https://forums.percona.com/t/percona5-7-myrocksdb-gap-lock-without-full-unique-key/8303
+	// Sadly, setting the transaction isolation level here doesn't do enough
+	if features.Get().RocksDBNoGapLocks {
+		result, err := ssa.dbMap.ExecContext(ctx, `
+		UPDATE orders
+		SET certificateSerial = ?
+		WHERE id = ? AND
+		beganProcessing = true`,
+			req.CertificateSerial,
+			req.Id)
+		if err != nil {
+			return nil, berrors.InternalServerError("error updating order for finalization")
+		}
+
+		n, err := result.RowsAffected()
+		if err != nil || n == 0 {
+			return nil, berrors.InternalServerError("no order updated for finalization")
+		}
+
+		// Delete the orderFQDNSet row for the order now that it has been finalized.
+		// We use this table for order reuse and should not reuse a finalized order.
+		err = deleteOrderFQDNSet(ctx, ssa.dbMap, req.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		if features.Get().TrackReplacementCertificatesARI {
+			err = setReplacementOrderFinalized(ctx, ssa.dbMap, req.Id)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return &emptypb.Empty{}, nil
+	}
+
+	// Old path
 	_, overallError := db.WithTransaction(ctx, ssa.dbMap, func(tx db.Executor) (interface{}, error) {
 		result, err := tx.ExecContext(ctx, `
 		UPDATE orders

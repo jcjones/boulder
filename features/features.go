@@ -120,6 +120,9 @@ type Config struct {
 
 	// trogdor demands you apply 40 dkp minus
 	UseMySQL bool
+
+	// burninating all teh rockxdbs
+	RocksDBNoGapLocks bool
 }
 
 var fMu = new(sync.RWMutex)
